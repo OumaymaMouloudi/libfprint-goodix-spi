@@ -384,11 +384,23 @@ BUILT_LIB="$BUILDDIR/libfprint/libfprint-2.so.2.0.0"
 BUILT_UDEV_RULE="$BUILDDIR/libfprint/70-libfprint-2.rules"
 [ -f "$BUILT_LIB" ] || { printf 'Error: built libfprint was not found.\n' >&2; exit 1; }
 [ -f "$BUILT_UDEV_RULE" ] || { printf 'Error: generated libfprint udev rules were not found.\n' >&2; exit 1; }
+# Accept the already-widened form too: the sed below edits the build output in
+# place, so a re-run without a libfprint rebuild sees acpi:ID:* here.
 for acpi in "${SUPPORTED_ACPI_IDS[@]}"; do
-  grep -Fq "ENV{MODALIAS}==\"acpi:$acpi:\"" "$BUILT_UDEV_RULE" || {
+  grep -Fq -e "ENV{MODALIAS}==\"acpi:$acpi:\"" -e "ENV{MODALIAS}==\"acpi:$acpi:*\"" "$BUILT_UDEV_RULE" || {
     printf 'Error: generated udev rules do not contain supported ACPI id %s.\n' "$acpi" >&2
     exit 1
   }
+done
+
+# libfprint's generator emits an exact MODALIAS match (acpi:ID:). Firmware that
+# also advertises a _CID presents the device as acpi:ID:ID:, which the exact
+# match misses -- leaving spidev unbound and the sensor invisible until a manual
+# bind. Widen each supported id to a glob so the rule fires with or without the
+# trailing _CID. The exact form was just validated to be present.
+for acpi in "${SUPPORTED_ACPI_IDS[@]}"; do
+  sed -i "s#ENV{MODALIAS}==\"acpi:${acpi}:\"#ENV{MODALIAS}==\"acpi:${acpi}:*\"#g" \
+    "$BUILT_UDEV_RULE"
 done
 
 # Recheck immediately before the first system write. The preflight check makes
